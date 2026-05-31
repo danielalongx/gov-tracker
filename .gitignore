@@ -1,0 +1,22 @@
+# Secrets — never commit
+.env
+
+# SQLite database and WAL files
+data/
+
+# macOS metadata
+.DS_Store
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
