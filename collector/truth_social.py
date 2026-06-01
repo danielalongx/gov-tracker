@@ -20,7 +20,7 @@ import hashlib
 import logging
 import sqlite3
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from typing import Optional
@@ -64,6 +64,20 @@ def _strip_html(html: str) -> str:
 
 def _iso(dt: Optional[datetime]) -> Optional[str]:
     return dt.isoformat() if dt else None
+
+
+_MAX_AGE = timedelta(hours=6)
+
+
+def _is_recent(posted_at: Optional[datetime]) -> bool:
+    """Return True only if posted_at is within the last 6 hours. None → False."""
+    if posted_at is None:
+        return False
+    now = datetime.now(timezone.utc)
+    # Normalise naive datetimes to UTC before comparing
+    if posted_at.tzinfo is None:
+        posted_at = posted_at.replace(tzinfo=timezone.utc)
+    return (now - posted_at) <= _MAX_AGE
 
 
 # ── Tier 1: Mastodon API ──────────────────────────────────────────────────────
@@ -194,6 +208,12 @@ def fetch_new_posts(
             "See collector/truth_social.py docstring for how to get a bearer token."
         )
         raw_posts = _fetch_via_news_rss()
+
+    before = len(raw_posts)
+    raw_posts = [p for p in raw_posts if _is_recent(p.get("posted_at"))]
+    skipped = before - len(raw_posts)
+    if skipped:
+        logger.info("Date filter: dropped %d article(s) older than 6 hours", skipped)
 
     new_ids: list[int] = []
     for post in raw_posts:
