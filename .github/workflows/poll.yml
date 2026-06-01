@@ -24,7 +24,6 @@ jobs:
 
       - name: Run pipeline
         env:
-          SCRAPECREATORS_API_KEY: ${{ secrets.SCRAPECREATORS_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           NTFY_CHANNEL: ${{ secrets.NTFY_CHANNEL }}
         run: python main.py
