@@ -66,7 +66,7 @@ def _iso(dt: Optional[datetime]) -> Optional[str]:
     return dt.isoformat() if dt else None
 
 
-_MAX_AGE = timedelta(hours=6)
+_MAX_AGE = timedelta(hours=1)
 
 
 def _is_recent(posted_at: Optional[datetime]) -> bool:
