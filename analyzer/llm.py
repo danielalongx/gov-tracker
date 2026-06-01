@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 MODEL = "claude-haiku-4-5-20251001"
 
 _ECONOMIC_KEYWORDS = {
+    # English
     "tariff", "trade", "sanction", "tax", "economy", "market", "stock",
     "company", "companies", "business", "corp", "industry", "industries",
     "energy", "oil", "gas", "coal", "nuclear", "solar", "tech", "technology",
@@ -18,46 +19,125 @@ _ECONOMIC_KEYWORDS = {
     "media", "streaming", "deal", "regulation", "deregulation",
     "infrastructure", "jobs", "employment", "inflation", "gdp",
     "federal reserve", "interest rate", "import", "export", "investment",
+    "earnings", "revenue", "merger", "acquisition", "ipo", "dividend",
     "china", "mexico", "canada", "europe", "russia", "opec",
     "amazon", "apple", "google", "microsoft", "tesla", "tiktok",
+    # Chinese
+    "经济", "股市", "贸易", "科技", "金融", "关税", "制裁", "通胀",
+    "利率", "美联储", "能源", "半导体", "医药", "银行", "并购",
+    "营收", "利润", "上市", "监管", "政策", "出口", "进口",
 }
 
-_PROMPT = """\
-你是一位投资信号分析师。请分析以下帖子或新闻文章中与投资相关的信号。
+# Use <<CONTENT>> and <<SOURCE>> placeholders so embedded JSON examples
+# don't need hundreds of escaped braces.
+_PROMPT_TEMPLATE = """\
+你是一位严格的投资信号分析师。来源类型: <<SOURCE>>
 
-内容：
-{content}
+分析以下内容是否包含有价值的投资信号:
+<<CONTENT>>
 
-请仅返回一个有效的JSON对象——不要包含markdown格式或任何说明文字：
-{{
+━━━ 评分标准（严格执行）━━━
+0-2  政治/选举/社会/娱乐/体育——与市场无关
+3-5  宏观经济评论，无具体公司或板块的直接影响
+6-8  明确涉及特定公司或行业的政策/市场信号
+9-10 直接市场催化剂：具体关税税率、公司并购协议、央行利率决定
+
+⚠️  相关度 ≥ 6 仅当文章有清晰、具体的投资信号时才使用。
+
+━━━ 公司提取规则 ━━━
+- 仅列出上市公司（或有明确上市计划的公司）
+- 对"石油巨头"等宽泛表述，列出具体前3家（埃克森美孚 XOM、雪佛龙 CVX、BP BP）
+- 中国公司同时提供中英文名（腾讯/Tencent TCEHY、阿里巴巴/Alibaba BABA）
+- 最多7家公司，ticker未知填 null
+
+━━━ 参考示例 ━━━
+
+【示例1 — 高度相关，评分8】
+来源: reuters_news
+内容: We are imposing 25% tariffs on all steel and aluminum imports from China effective next month. American steel producers will see immediate benefit. [Reuters]
+输出:
+{
+  "is_relevant": true,
+  "sentiment": "混合",
+  "tickers": ["X", "NUE", "STLD"],
+  "companies": [
+    {"name": "美国钢铁 US Steel", "ticker": "X", "impact": "利多"},
+    {"name": "纽柯钢铁 Nucor", "ticker": "NUE", "impact": "利多"},
+    {"name": "Steel Dynamics", "ticker": "STLD", "impact": "利多"}
+  ],
+  "industries": ["钢铁", "铝业"],
+  "relevance_score": 8,
+  "summary": "美国对中国钢铝加征25%关税，直接利好美国本土钢铁生产商（US Steel、Nucor、Steel Dynamics），利空依赖进口钢材的制造业企业。",
+  "source_name": "Reuters"
+}
+
+【示例2 — 边界相关，评分5】
+来源: reuters_news
+内容: Federal Reserve officials signal a cautious approach to rate cuts as inflation remains above target, according to meeting minutes. [AP]
+输出:
+{
+  "is_relevant": true,
+  "sentiment": "中性",
+  "tickers": [],
+  "companies": [],
+  "industries": ["银行业", "房地产", "债券市场"],
+  "relevance_score": 5,
+  "summary": "美联储会议纪要显示官员对降息持谨慎态度，对利率敏感行业有潜在压力，但尚无具体政策行动。",
+  "source_name": "AP"
+}
+
+【示例3 — 不相关，评分1】
+来源: trump_news
+内容: Trump criticizes mainstream media at campaign rally, says election was stolen and calls for major reforms. [CNN]
+输出:
+{
+  "is_relevant": false,
+  "sentiment": "中性",
+  "tickers": [],
+  "companies": [],
+  "industries": [],
+  "relevance_score": 1,
+  "summary": "纯政治集会内容，无投资相关信号。",
+  "source_name": "CNN"
+}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+现在分析上面提供的内容。仅返回JSON对象，不加任何说明：
+{
   "is_relevant": <true|false>,
   "sentiment": "<利多|利空|中性|混合>",
-  "tickers": [<被提及或强烈暗示的股票代码，例如 "TSLA">],
-  "companies": [
-    {{"name": "<公司名称>", "ticker": "<股票代码或null>", "impact": "<利多|利空>"}}
-  ],
-  "industries": [<受影响的行业，例如"半导体"、"医药"、"能源">],
-  "relevance_score": <0到10的整数>,
-  "summary": "<用中文写1-2句话的投资信号摘要>",
-  "source_name": "<新闻来源或平台名称，例如 Reuters、AP、Politico、Truth Social>"
-}}
+  "tickers": [...],
+  "companies": [{"name": "...", "ticker": "...或null", "impact": "利多|利空"}],
+  "industries": [...],
+  "relevance_score": <0-10整数>,
+  "summary": "<中文1-2句话>",
+  "source_name": "<来源名称>"
+}"""
 
-规则：
-- "companies"最多列出7家公司，股票代码未知时填null。
-- 知名公司请使用中文名（英伟达、苹果、特斯拉、微软、谷歌、亚马逊、三星、台积电、英特尔、高通、Meta）；不确定的公司保留英文名或代码。
-- "source_name"从文章内容中提取发布方名称（通常在方括号内）。
+_SOURCE_LABELS = {
+    "truth_social":     "Trump Truth Social直接发帖",
+    "trump_news":       "Trump相关新闻报道",
+    "federal_register": "美国联邦公报官方文件",
+    "denmark_news":     "丹麦经济/商业新闻",
+    "eu_news":          "欧盟经济/政策新闻",
+    "china_news":       "中国金融/经济新闻",
+    "reuters_news":     "路透社宏观金融新闻",
+    "us_corporate_news": "美国企业财报/并购新闻",
+}
 
-相关度评分：
-  0-2  纯政治/个人内容，无经济影响
-  3-5  模糊经济提及，市场影响不明确
-  6-8  明确暗示对某板块或公司有影响
-  9-10 直接影响市场的声明（具体股票、关税税率、政策变化）
 
-请仅返回JSON对象。"""
+def _build_prompt(content: str, source: str) -> str:
+    label = _SOURCE_LABELS.get(source, source)
+    return (
+        _PROMPT_TEMPLATE
+        .replace("<<CONTENT>>", content[:2000])
+        .replace("<<SOURCE>>", label)
+    )
 
 
 def _keyword_prefilter(content: str) -> bool:
-    """Return True if content has any economic keyword — saves LLM calls on pure rants."""
+    """Return True if content has any economic keyword — saves LLM calls on pure noise."""
     text = content.lower()
     return any(kw in text for kw in _ECONOMIC_KEYWORDS)
 
@@ -76,13 +156,13 @@ def _parse_llm_response(raw: str) -> Optional[dict]:
         return None
 
 
-def _call_llm(client: anthropic.Anthropic, content: str) -> Optional[dict]:
+def _call_llm(client: anthropic.Anthropic, content: str, source: str) -> Optional[dict]:
     try:
         msg = client.messages.create(
             model=MODEL,
-            max_tokens=1024,
+            max_tokens=1536,
             messages=[
-                {"role": "user", "content": _PROMPT.format(content=content[:2000])}
+                {"role": "user", "content": _build_prompt(content, source)}
             ],
         )
         return _parse_llm_response(msg.content[0].text)
@@ -130,12 +210,13 @@ def analyze_unprocessed(conn: sqlite3.Connection, client: anthropic.Anthropic) -
     for post in posts:
         post_db_id: int = post["id"]
         content: str = post["content"] or ""
+        source: str = post["source"] or ""
 
         try:
             if not _keyword_prefilter(content):
                 logger.debug("Post %d skipped by keyword filter", post_db_id)
             else:
-                result = _call_llm(client, content)
+                result = _call_llm(client, content, source)
                 if result is not None:
                     aid = _save_analysis(conn, post_db_id, result)
                     if aid:
