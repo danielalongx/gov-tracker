@@ -40,6 +40,7 @@ def main() -> None:
     from db.init_db import get_connection, init_db
     from collector.truth_social import fetch_new_posts
     from collector.federal_register import fetch_new_documents
+    from collector.international import fetch_denmark_news, fetch_eu_news
     from analyzer.llm import analyze_unprocessed
     from notifier.ntfy import send_pending_notifications
 
@@ -51,11 +52,12 @@ def main() -> None:
         logger.info("=== Collector ===")
         ts_ids = fetch_new_posts(conn, truth_social_token)
         fr_ids = fetch_new_documents(conn)
+        dk_ids = fetch_denmark_news(conn)
+        eu_ids = fetch_eu_news(conn)
+        total = len(ts_ids) + len(fr_ids) + len(dk_ids) + len(eu_ids)
         logger.info(
-            "New items: %d total (%d Truth Social, %d Federal Register)",
-            len(ts_ids) + len(fr_ids),
-            len(ts_ids),
-            len(fr_ids),
+            "New items: %d total (%d Trump/news, %d Federal Register, %d Denmark, %d EU)",
+            total, len(ts_ids), len(fr_ids), len(dk_ids), len(eu_ids),
         )
 
         # ── Analyzer ─────────────────────────────────────────────────
@@ -69,7 +71,7 @@ def main() -> None:
 
         logger.info(
             "Run complete — new posts: %d, analyses: %d, notifications: %d",
-            len(ts_ids) + len(fr_ids),
+            total,
             len(analysis_ids),
             sent,
         )
