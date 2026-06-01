@@ -21,9 +21,15 @@ logger = logging.getLogger(__name__)
 
 SOURCE_DENMARK = "denmark_news"
 SOURCE_EU = "eu_news"
+SOURCE_CHINA = "china_news"
+SOURCE_REUTERS = "reuters_news"
+SOURCE_US_CORP = "us_corporate_news"
 
 _DENMARK_QUERY = "Denmark economy OR business OR market OR trade"
 _EU_QUERY = "European Union economy OR policy OR market OR trade"
+_CHINA_QUERY = "中国 经济 OR 股市 OR 贸易 OR 科技 OR 金融"
+_REUTERS_QUERY = "site:reuters.com economy OR markets OR trade OR Federal Reserve OR tariffs"
+_US_CORP_QUERY = "earnings OR quarterly results OR revenue guidance OR CEO OR merger acquisition"
 
 _TOP_N = 3  # max articles per source per run
 
@@ -118,4 +124,28 @@ def fetch_eu_news(conn: sqlite3.Connection) -> list[int]:
     posts = _fetch_google_news(_EU_QUERY, SOURCE_EU)
     new_ids = _persist(conn, posts)
     logger.info("EU news: %d new article(s)", len(new_ids))
+    return new_ids
+
+
+def fetch_china_news(conn: sqlite3.Connection) -> list[int]:
+    """Fetch top 3 recent China financial/economic articles. Returns new DB row IDs."""
+    posts = _fetch_google_news(_CHINA_QUERY, SOURCE_CHINA)
+    new_ids = _persist(conn, posts)
+    logger.info("China news: %d new article(s)", len(new_ids))
+    return new_ids
+
+
+def fetch_reuters_news(conn: sqlite3.Connection) -> list[int]:
+    """Fetch top 3 recent Reuters macro articles. Returns new DB row IDs."""
+    posts = _fetch_google_news(_REUTERS_QUERY, SOURCE_REUTERS)
+    new_ids = _persist(conn, posts)
+    logger.info("Reuters news: %d new article(s)", len(new_ids))
+    return new_ids
+
+
+def fetch_us_corporate_news(conn: sqlite3.Connection) -> list[int]:
+    """Fetch top 3 recent US earnings/corporate articles. Returns new DB row IDs."""
+    posts = _fetch_google_news(_US_CORP_QUERY, SOURCE_US_CORP)
+    new_ids = _persist(conn, posts)
+    logger.info("US corporate news: %d new article(s)", len(new_ids))
     return new_ids

@@ -40,7 +40,10 @@ def main() -> None:
     from db.init_db import get_connection, init_db
     from collector.truth_social import fetch_new_posts
     from collector.federal_register import fetch_new_documents
-    from collector.international import fetch_denmark_news, fetch_eu_news
+    from collector.international import (
+        fetch_denmark_news, fetch_eu_news,
+        fetch_china_news, fetch_reuters_news, fetch_us_corporate_news,
+    )
     from analyzer.llm import analyze_unprocessed
     from notifier.ntfy import send_pending_notifications
 
@@ -50,14 +53,17 @@ def main() -> None:
     try:
         # ── Collector ────────────────────────────────────────────────
         logger.info("=== Collector ===")
-        ts_ids = fetch_new_posts(conn, truth_social_token)
-        fr_ids = fetch_new_documents(conn)
-        dk_ids = fetch_denmark_news(conn)
-        eu_ids = fetch_eu_news(conn)
-        total = len(ts_ids) + len(fr_ids) + len(dk_ids) + len(eu_ids)
+        ts_ids  = fetch_new_posts(conn, truth_social_token)
+        fr_ids  = fetch_new_documents(conn)
+        dk_ids  = fetch_denmark_news(conn)
+        eu_ids  = fetch_eu_news(conn)
+        cn_ids  = fetch_china_news(conn)
+        rt_ids  = fetch_reuters_news(conn)
+        usc_ids = fetch_us_corporate_news(conn)
+        total = len(ts_ids) + len(fr_ids) + len(dk_ids) + len(eu_ids) + len(cn_ids) + len(rt_ids) + len(usc_ids)
         logger.info(
-            "New items: %d total (%d Trump/news, %d Federal Register, %d Denmark, %d EU)",
-            total, len(ts_ids), len(fr_ids), len(dk_ids), len(eu_ids),
+            "New items: %d total | Trump %d | FedReg %d | Denmark %d | EU %d | China %d | Reuters %d | US Corp %d",
+            total, len(ts_ids), len(fr_ids), len(dk_ids), len(eu_ids), len(cn_ids), len(rt_ids), len(usc_ids),
         )
 
         # ── Analyzer ─────────────────────────────────────────────────
