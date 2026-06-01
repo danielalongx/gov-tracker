@@ -26,6 +26,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         ("posts",    "article_published_at",  "ALTER TABLE posts    ADD COLUMN article_published_at TEXT"),
         ("analysis", "companies",             "ALTER TABLE analysis ADD COLUMN companies            TEXT"),
         ("analysis", "source_name",           "ALTER TABLE analysis ADD COLUMN source_name          TEXT"),
+        ("analysis", "hold_for_digest",       "ALTER TABLE analysis ADD COLUMN hold_for_digest      INTEGER DEFAULT 0"),
+        ("analysis", "notified_at",           "ALTER TABLE analysis ADD COLUMN notified_at          DATETIME"),
     ]
     for table, column, sql in migrations:
         try:
