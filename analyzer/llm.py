@@ -116,14 +116,29 @@ _PROMPT_TEMPLATE = """\
 }"""
 
 _SOURCE_LABELS = {
-    "truth_social":     "Trump Truth Social直接发帖",
-    "trump_news":       "Trump相关新闻报道",
-    "federal_register": "美国联邦公报官方文件",
-    "denmark_news":     "丹麦经济/商业新闻",
-    "eu_news":          "欧盟经济/政策新闻",
-    "china_news":       "中国金融/经济新闻",
-    "reuters_news":     "路透社宏观金融新闻",
-    "us_corporate_news": "美国企业财报/并购新闻",
+    "truth_social":       "Trump Truth Social直接发帖",
+    "trump_news":         "Trump相关新闻报道",
+    "federal_register":   "美国联邦公报官方文件",
+    "denmark_news":       "丹麦经济/商业新闻",
+    "eu_news":            "欧盟经济/政策新闻",
+    "china_news":         "中国金融/经济新闻",
+    "reuters_news":       "路透社宏观金融新闻",
+    "us_corporate_news":  "美国企业财报/并购新闻",
+    "marketwatch_news":   "MarketWatch市场新闻",
+    "ft_news":            "金融时报（FT）新闻",
+    "cnbc_news":          "CNBC财经新闻",
+    "bloomberg_news":     "彭博社财经新闻",
+    "cls_news":           "财联社中国财经新闻",
+    "sina_finance":       "新浪财经A股/港股/美股",
+    "arkk_trade":         "ARK创新基金（ARKK）持仓变动公告",
+    "arkw_trade":         "ARK下一代互联网ETF（ARKW）持仓变动公告",
+    "guru_buffett":       "巴菲特（Berkshire Hathaway）SEC 13F持仓申报",
+    "guru_burry":         "迈克尔·伯里（Scion）SEC 13F持仓申报",
+    "guru_ackman":        "比尔·阿克曼（Pershing Square）SEC 13F持仓申报",
+    "guru_dalio":         "瑞·达利欧（Bridgewater）SEC 13F持仓申报",
+    "guru_druckenmiller": "斯坦利·德鲁肯米勒（Duquesne）SEC 13F持仓申报",
+    "guru_tepper":        "戴维·泰珀（Appaloosa）SEC 13F持仓申报",
+    "guru_other":         "机构投资者SEC 13F持仓申报",
 }
 
 

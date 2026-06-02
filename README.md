@@ -108,6 +108,30 @@ subscriptions(id, user_id, topic)
 
 `tickers` and `industries` are stored as JSON arrays.
 
+## API server (for mobile app)
+
+A FastAPI server in `api/` exposes the signal database over HTTP so the Expo mobile app can read real data.
+
+### Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/signals` | Paginated signal list, most recent first |
+| GET | `/signals/{id}` | Single signal by post ID |
+| GET | `/health` | DB connectivity check |
+
+`GET /signals` query params: `limit` (default 20), `offset`, `source`, `sentiment` (`bullish`/`bearish`/`neutral`/`mixed`), `min_score` (default 6).
+
+### Run locally
+
+```bash
+cd api
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+```
+
+API docs available at `http://localhost:8000/docs` once running.
+
 ## Phase roadmap
 
 | Phase | Status | Description |

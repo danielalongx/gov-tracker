@@ -43,7 +43,10 @@ def main() -> None:
     from collector.international import (
         fetch_denmark_news, fetch_eu_news,
         fetch_china_news, fetch_reuters_news, fetch_us_corporate_news,
+        fetch_marketwatch_news, fetch_ft_news, fetch_cnbc_news,
+        fetch_bloomberg_news, fetch_cls_news, fetch_sina_finance,
     )
+    from collector.guru_trades import fetch_guru_trades
     from analyzer.llm import analyze_unprocessed
     from notifier.ntfy import send_pending_notifications
 
@@ -60,10 +63,25 @@ def main() -> None:
         cn_ids  = fetch_china_news(conn)
         rt_ids  = fetch_reuters_news(conn)
         usc_ids = fetch_us_corporate_news(conn)
-        total = len(ts_ids) + len(fr_ids) + len(dk_ids) + len(eu_ids) + len(cn_ids) + len(rt_ids) + len(usc_ids)
+        mw_ids  = fetch_marketwatch_news(conn)
+        ft_ids  = fetch_ft_news(conn)
+        cb_ids  = fetch_cnbc_news(conn)
+        bl_ids  = fetch_bloomberg_news(conn)
+        cls_ids = fetch_cls_news(conn)
+        sf_ids  = fetch_sina_finance(conn)
+        guru_ids = fetch_guru_trades(conn)
+        total = (
+            len(ts_ids) + len(fr_ids) + len(dk_ids) + len(eu_ids) + len(cn_ids)
+            + len(rt_ids) + len(usc_ids) + len(mw_ids) + len(ft_ids) + len(cb_ids)
+            + len(bl_ids) + len(cls_ids) + len(sf_ids) + len(guru_ids)
+        )
         logger.info(
-            "New items: %d total | Trump %d | FedReg %d | Denmark %d | EU %d | China %d | Reuters %d | US Corp %d",
-            total, len(ts_ids), len(fr_ids), len(dk_ids), len(eu_ids), len(cn_ids), len(rt_ids), len(usc_ids),
+            "New items: %d total | Trump %d | FedReg %d | Denmark %d | EU %d | "
+            "China %d | Reuters %d | USCorp %d | MarketWatch %d | FT %d | "
+            "CNBC %d | Bloomberg %d | 财联社 %d | 新浪 %d | Guru/ARK %d",
+            total, len(ts_ids), len(fr_ids), len(dk_ids), len(eu_ids),
+            len(cn_ids), len(rt_ids), len(usc_ids), len(mw_ids), len(ft_ids),
+            len(cb_ids), len(bl_ids), len(cls_ids), len(sf_ids), len(guru_ids),
         )
 
         # ── Analyzer ─────────────────────────────────────────────────

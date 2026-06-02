@@ -15,6 +15,23 @@ UTC8 = timezone(timedelta(hours=8))
 DIGEST_HOURS = {8, 12, 20}
 _DIGEST_PERIOD = {8: "早间", 12: "午间", 20: "晚间"}
 
+_GURU_DISCLAIMER = (
+    "\n\n⚠️ 仅供参考，非投资建议\n"
+    "以上信息来源于公开监管申报文件（SEC 13F）或 ARK 官方公开披露。\n"
+    "投资有风险，决策需谨慎。本平台不提供投资建议，不承担任何投资损失责任。"
+)
+
+_GURU_SOURCES = frozenset({
+    "arkk_trade", "arkw_trade",
+    "guru_buffett", "guru_burry", "guru_ackman",
+    "guru_dalio", "guru_druckenmiller", "guru_tepper", "guru_other",
+})
+
+
+def _is_guru(source: str) -> bool:
+    return source in _GURU_SOURCES
+
+
 _SENTIMENT_EMOJI = {
     "利多": "📈", "利空": "📉", "中性": "➡️", "混合": "↕️",
     "bullish": "📈", "bearish": "📉", "neutral": "➡️", "mixed": "↕️",
@@ -79,7 +96,13 @@ def _format_notification(row: sqlite3.Row) -> tuple[str, str, str]:
     if url:
         parts += ["", f"🔗 {url}"]
 
-    title = f"{signal_emoji} {sentiment} {score}/10"
+    source = row["source"] or ""
+    if _is_guru(source):
+        parts.append(_GURU_DISCLAIMER)
+        title = f"[参考] {signal_emoji} {sentiment} {score}/10"
+    else:
+        title = f"{signal_emoji} {sentiment} {score}/10"
+
     return title, "\n".join(parts), url
 
 
