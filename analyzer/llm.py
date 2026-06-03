@@ -5,6 +5,8 @@ from typing import Optional
 
 import anthropic
 
+from analyzer.dimensions import score_dimensions
+
 logger = logging.getLogger(__name__)
 
 MODEL = "claude-haiku-4-5-20251001"
@@ -186,14 +188,21 @@ def _call_llm(client: anthropic.Anthropic, content: str, source: str) -> Optiona
         return None
 
 
-def _save_analysis(conn: sqlite3.Connection, post_db_id: int, result: dict) -> Optional[int]:
+def _save_analysis(
+    conn: sqlite3.Connection,
+    post_db_id: int,
+    result: dict,
+    dims: dict,
+) -> Optional[int]:
     try:
         cur = conn.execute(
             """
             INSERT INTO analysis
                 (post_id, is_relevant, sentiment, tickers, companies,
-                 industries, relevance_score, summary, source_name)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 industries, relevance_score, summary, source_name,
+                 score_news, score_financial, score_pipeline,
+                 score_regulatory, score_capital_flows)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 post_db_id,
@@ -205,6 +214,11 @@ def _save_analysis(conn: sqlite3.Connection, post_db_id: int, result: dict) -> O
                 float(result.get("relevance_score") or 0),
                 result.get("summary", ""),
                 result.get("source_name", ""),
+                dims["news"],
+                dims["financial"],
+                dims["pipeline"],
+                dims["regulatory"],
+                dims["capital_flows"],
             ),
         )
         conn.commit()
@@ -233,7 +247,11 @@ def analyze_unprocessed(conn: sqlite3.Connection, client: anthropic.Anthropic) -
             else:
                 result = _call_llm(client, content, source)
                 if result is not None:
-                    aid = _save_analysis(conn, post_db_id, result)
+                    dims = score_dimensions(
+                        {"source": source},
+                        result,
+                    )
+                    aid = _save_analysis(conn, post_db_id, result, dims)
                     if aid:
                         analysis_ids.append(aid)
         except Exception as e:

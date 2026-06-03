@@ -3,7 +3,10 @@ import os
 import sqlite3
 from pathlib import Path
 
-from db.schema import CREATE_ANALYSIS, CREATE_POSTS, CREATE_SUBSCRIPTIONS, CREATE_USERS
+from db.schema import (
+    CREATE_ANALYSIS, CREATE_POSTS, CREATE_SUBSCRIPTIONS, CREATE_USERS,
+    CREATE_STOCK_SNAPSHOTS, CREATE_EARNINGS, CREATE_INSIDER_TRADES,
+)
 
 logger = logging.getLogger(__name__)
 DB_PATH = Path("data/gov_tracker.db")
@@ -28,6 +31,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
         ("analysis", "source_name",           "ALTER TABLE analysis ADD COLUMN source_name          TEXT"),
         ("analysis", "hold_for_digest",       "ALTER TABLE analysis ADD COLUMN hold_for_digest      INTEGER DEFAULT 0"),
         ("analysis", "notified_at",           "ALTER TABLE analysis ADD COLUMN notified_at          DATETIME"),
+        ("analysis", "score_news",            "ALTER TABLE analysis ADD COLUMN score_news            REAL DEFAULT 0"),
+        ("analysis", "score_financial",       "ALTER TABLE analysis ADD COLUMN score_financial       REAL DEFAULT 0"),
+        ("analysis", "score_pipeline",        "ALTER TABLE analysis ADD COLUMN score_pipeline        REAL DEFAULT 0"),
+        ("analysis", "score_regulatory",      "ALTER TABLE analysis ADD COLUMN score_regulatory      REAL DEFAULT 0"),
+        ("analysis", "score_capital_flows",   "ALTER TABLE analysis ADD COLUMN score_capital_flows   REAL DEFAULT 0"),
     ]
     for table, column, sql in migrations:
         try:
@@ -47,6 +55,9 @@ def init_db() -> None:
         conn.execute(CREATE_ANALYSIS)
         conn.execute(CREATE_USERS)
         conn.execute(CREATE_SUBSCRIPTIONS)
+        conn.execute(CREATE_STOCK_SNAPSHOTS)
+        conn.execute(CREATE_EARNINGS)
+        conn.execute(CREATE_INSIDER_TRADES)
 
         ntfy_channel = os.getenv("NTFY_CHANNEL", "gov-tracker-default")
         if conn.execute("SELECT id FROM users LIMIT 1").fetchone() is None:

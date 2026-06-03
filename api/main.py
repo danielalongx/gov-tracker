@@ -94,6 +94,15 @@ def _row_to_signal(row: sqlite3.Row) -> dict:
             "companies": companies,
         },
     }
+    result["dimension_scores"] = {
+        "news": int(row["score_news"] or 0),
+        "financial": int(row["score_financial"] or 0),
+        "pipeline": int(row["score_pipeline"] or 0),
+        "regulatory": int(row["score_regulatory"] or 0),
+        "capital_flows": int(row["score_capital_flows"] or 0),
+        "technical": 0,
+    }
+
     if source in _GURU_SOURCES:
         result["disclaimer"] = _GURU_DISCLAIMER
     return result
@@ -115,7 +124,12 @@ _SELECT = """
         a.tickers,
         a.companies,
         a.industries,
-        a.source_name AS analysis_source_name
+        a.source_name AS analysis_source_name,
+        a.score_news,
+        a.score_financial,
+        a.score_pipeline,
+        a.score_regulatory,
+        a.score_capital_flows
     FROM posts p
     JOIN analysis a ON a.post_id = p.id
 """
@@ -160,6 +174,50 @@ def list_signals(
             params + [limit, offset],
         ).fetchall()
 
+    return [_row_to_signal(r) for r in rows]
+
+
+@app.get("/stocks/{ticker}/snapshot")
+def get_stock_snapshot(ticker: str):
+    ticker = ticker.upper()
+    with _conn() as con:
+        row = con.execute(
+            "SELECT * FROM stock_snapshots WHERE ticker = ? ORDER BY fetched_at DESC LIMIT 1",
+            (ticker,),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"No snapshot found for {ticker}")
+    return dict(row)
+
+
+@app.get("/stocks/{ticker}/earnings")
+def get_stock_earnings(ticker: str):
+    ticker = ticker.upper()
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT * FROM earnings WHERE ticker = ? ORDER BY period DESC LIMIT 4",
+            (ticker,),
+        ).fetchall()
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"No earnings found for {ticker}")
+    return [dict(r) for r in rows]
+
+
+@app.get("/stocks/{ticker}/signals")
+def get_ticker_signals(
+    ticker: str,
+    limit: int = Query(20, ge=1, le=100),
+    min_score: int = Query(6, ge=0, le=10),
+):
+    ticker = ticker.upper()
+    with _conn() as con:
+        rows = con.execute(
+            f"{_SELECT} WHERE a.is_relevant = 1 AND a.relevance_score >= ?"
+            " AND (a.tickers LIKE ? OR p.content LIKE ?)"
+            " ORDER BY COALESCE(p.article_published_at, p.posted_at) DESC"
+            " LIMIT ?",
+            (min_score, f'%"{ticker}"%', f"%{ticker}%", limit),
+        ).fetchall()
     return [_row_to_signal(r) for r in rows]
 
 

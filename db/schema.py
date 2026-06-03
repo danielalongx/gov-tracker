@@ -50,3 +50,48 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     topic   TEXT    NOT NULL
 )
 """
+
+CREATE_STOCK_SNAPSHOTS = """
+CREATE TABLE IF NOT EXISTS stock_snapshots (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker       TEXT    NOT NULL,
+    fetched_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+    price        REAL,
+    pe_ratio     REAL,
+    market_cap   REAL,
+    target_price REAL,
+    eps_ttm      REAL,
+    week52_high  REAL,
+    week52_low   REAL,
+    volume       INTEGER
+)
+"""
+
+CREATE_EARNINGS = """
+CREATE TABLE IF NOT EXISTS earnings (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker        TEXT    NOT NULL,
+    period        TEXT    NOT NULL,
+    revenue       REAL,
+    net_income    REAL,
+    eps_actual    REAL,
+    eps_estimate  REAL,
+    surprise_pct  REAL,
+    reported_at   TEXT,
+    UNIQUE(ticker, period)
+)
+"""
+
+CREATE_INSIDER_TRADES = """
+CREATE TABLE IF NOT EXISTS insider_trades (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker      TEXT    NOT NULL,
+    person_name TEXT,
+    role        TEXT,
+    action      TEXT,
+    shares      REAL,
+    price       REAL,
+    filed_at    TEXT,
+    UNIQUE(ticker, person_name, filed_at, action)
+)
+"""
