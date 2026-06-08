@@ -6,6 +6,7 @@ from typing import Optional
 import anthropic
 
 from analyzer.dimensions import score_dimensions
+from collector.keyword_filter import should_process as _investment_filter
 
 logger = logging.getLogger(__name__)
 
@@ -242,8 +243,8 @@ def analyze_unprocessed(conn: sqlite3.Connection, client: anthropic.Anthropic) -
         source: str = post["source"] or ""
 
         try:
-            if not _keyword_prefilter(content):
-                logger.debug("Post %d skipped by keyword filter", post_db_id)
+            if not _investment_filter(content, None, source):
+                logger.debug("Post %d skipped by investment filter", post_db_id)
             else:
                 result = _call_llm(client, content, source)
                 if result is not None:

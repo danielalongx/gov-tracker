@@ -45,9 +45,26 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE_SUBSCRIPTIONS = """
 CREATE TABLE IF NOT EXISTS subscriptions (
-    id      INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL REFERENCES users(id),
-    topic   TEXT    NOT NULL
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id        INTEGER NOT NULL REFERENCES users(id),
+    topic          TEXT    NOT NULL,
+    tier           TEXT    DEFAULT 'free',
+    stripe_sub_id  TEXT,
+    activated_at   DATETIME,
+    expires_at     DATETIME
+)
+"""
+
+CREATE_USER_WATCHLIST = """
+CREATE TABLE IF NOT EXISTS user_watchlist (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id),
+    ticker     TEXT    NOT NULL,
+    name       TEXT,
+    sector     TEXT,
+    added_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+    weights    TEXT,    -- JSON: {news, financial, regulatory, pipeline, capitalFlows, technical}
+    UNIQUE(user_id, ticker)
 )
 """
 

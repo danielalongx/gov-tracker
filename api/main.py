@@ -1,6 +1,7 @@
 import json
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -177,6 +178,44 @@ def list_signals(
     return [_row_to_signal(r) for r in rows]
 
 
+@app.get("/stocks/{ticker}")
+def get_stock(ticker: str):
+    """Return snapshot from DB; auto-fetches fresh data if cached entry is >1 hour old."""
+    from datetime import timedelta
+    from collector.financials import fetch_stock_snapshot
+
+    ticker = ticker.upper()
+    with _conn() as con:
+        row = con.execute(
+            "SELECT * FROM stock_snapshots WHERE ticker = ? ORDER BY fetched_at DESC LIMIT 1",
+            (ticker,),
+        ).fetchone()
+
+        stale = True
+        if row:
+            try:
+                fetched = datetime.fromisoformat(str(row["fetched_at"]).replace(" ", "T"))
+                if fetched.tzinfo is None:
+                    fetched = fetched.replace(tzinfo=timezone.utc)
+                stale = (datetime.now(timezone.utc) - fetched) > timedelta(hours=1)
+            except Exception:
+                stale = True
+
+        if stale:
+            snap = fetch_stock_snapshot(ticker, con)
+            if snap is None and row is None:
+                raise HTTPException(status_code=404, detail=f"Could not fetch data for {ticker}")
+            if snap:
+                row = con.execute(
+                    "SELECT * FROM stock_snapshots WHERE ticker = ? ORDER BY fetched_at DESC LIMIT 1",
+                    (ticker,),
+                ).fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail=f"No snapshot found for {ticker}")
+    return dict(row)
+
+
 @app.get("/stocks/{ticker}/snapshot")
 def get_stock_snapshot(ticker: str):
     ticker = ticker.upper()
@@ -233,3 +272,126 @@ def get_signal(signal_id: int):
         raise HTTPException(status_code=404, detail="Signal not found")
 
     return _row_to_signal(row)
+
+
+# ---------------------------------------------------------------------------
+# Subscription / payment endpoints
+# ---------------------------------------------------------------------------
+
+from fastapi import Request, Body
+from fastapi.responses import JSONResponse
+
+@app.get("/tiers")
+@app.get("/subscription/tiers")
+def get_tiers():
+    """Return all available tiers and their limits — no auth required."""
+    from api.payments import TIER_LIMITS
+    return {
+        "tiers": [
+            {
+                "id": tier_id,
+                "name": {"free": "免费版", "pro": "Pro", "analyst": "Analyst"}[tier_id],
+                "price_monthly": limits["price_monthly"],
+                "max_stocks": limits["max_stocks"],
+                "custom_weights": limits["custom_weights"],
+                "digest_count": limits["digest_count"],
+                "api_access": limits["api_access"],
+            }
+            for tier_id, limits in TIER_LIMITS.items()
+        ]
+    }
+
+
+@app.post("/checkout/{tier}")
+def create_checkout_path(
+    tier: str,
+    user_id: int = Body(...),
+    success_url: str = Body(...),
+    cancel_url: str = Body(...),
+):
+    """Create a Stripe checkout session (tier in path)."""
+    return create_checkout(user_id=user_id, tier=tier, success_url=success_url, cancel_url=cancel_url)
+
+
+@app.post("/subscription/checkout")
+def create_checkout(
+    user_id: int = Body(...),
+    tier: str = Body(...),
+    success_url: str = Body(...),
+    cancel_url: str = Body(...),
+):
+    """Create a Stripe checkout session. Returns {checkout_url} or {error}."""
+    from api.payments import create_checkout_session
+    if tier not in ("pro", "analyst"):
+        raise HTTPException(status_code=400, detail="Invalid tier")
+    url = create_checkout_session(user_id, tier, success_url, cancel_url)
+    if not url:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Stripe not configured. Set STRIPE_SECRET_KEY in .env."}
+        )
+    return {"checkout_url": url}
+
+
+@app.post("/stripe/webhook")
+async def stripe_webhook(request: Request):
+    """Handle Stripe webhook events (subscription activated/cancelled)."""
+    from api.payments import handle_webhook
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+    with _conn() as con:
+        result = handle_webhook(payload, sig, con)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Watchlist endpoints (user stock tracking + dimension weights)
+# ---------------------------------------------------------------------------
+
+@app.get("/users/{user_id}/watchlist")
+def get_watchlist(user_id: int):
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT ticker, name, sector, added_at, weights FROM user_watchlist WHERE user_id = ? ORDER BY added_at DESC",
+            (user_id,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.post("/users/{user_id}/watchlist")
+def add_to_watchlist(user_id: int, body: dict = Body(...)):
+    ticker = body.get("ticker", "").upper()
+    if not ticker:
+        raise HTTPException(status_code=400, detail="ticker required")
+    with _conn() as con:
+        con.execute(
+            "INSERT OR IGNORE INTO user_watchlist (user_id, ticker, name, sector) VALUES (?,?,?,?)",
+            (user_id, ticker, body.get("name"), body.get("sector"))
+        )
+        con.commit()
+    return {"status": "added", "ticker": ticker}
+
+
+@app.put("/users/{user_id}/watchlist/{ticker}/weights")
+def update_weights(user_id: int, ticker: str, body: dict = Body(...)):
+    import json as _json
+    ticker = ticker.upper()
+    with _conn() as con:
+        con.execute(
+            "UPDATE user_watchlist SET weights = ? WHERE user_id = ? AND ticker = ?",
+            (_json.dumps(body), user_id, ticker)
+        )
+        con.commit()
+    return {"status": "updated", "ticker": ticker}
+
+
+@app.delete("/users/{user_id}/watchlist/{ticker}")
+def remove_from_watchlist(user_id: int, ticker: str):
+    ticker = ticker.upper()
+    with _conn() as con:
+        con.execute(
+            "DELETE FROM user_watchlist WHERE user_id = ? AND ticker = ?",
+            (user_id, ticker)
+        )
+        con.commit()
+    return {"status": "removed", "ticker": ticker}
