@@ -41,6 +41,7 @@ _ARK_FUNDS: dict[str, str] = {
     "ARKK": "https://ark-funds.com/wp-content/uploads/funds-etf-csv/ARK_INNOVATION_ETF_ARKK_HOLDINGS.csv",
     "ARKW": "https://ark-funds.com/wp-content/uploads/funds-etf-csv/ARK_NEXT_GENERATION_INTERNET_ETF_ARKW_HOLDINGS.csv",
 }
+_ARK_FALLBACK_API = "https://arkfunds.io/api/v2/etf/holdings"
 _ARK_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
     "Accept": "text/csv,text/plain,*/*",
@@ -85,10 +86,13 @@ def _ensure_snapshot_table(conn: sqlite3.Connection) -> None:
 
 # ── ARK CSV helpers ───────────────────────────────────────────────────────────
 
-def _fetch_ark_csv(url: str) -> dict[str, dict]:
-    """Download ARK holdings CSV → {ticker: {company, shares}}. {} on failure."""
+def _fetch_ark_csv(url: str) -> Optional[dict[str, dict]]:
+    """Download ARK holdings CSV. Returns None on 404, {} on other error."""
     try:
         resp = requests.get(url, headers=_ARK_HEADERS, timeout=25)
+        if resp.status_code == 404:
+            logger.warning("ARK CSV 404: %s", url)
+            return None
         resp.raise_for_status()
     except requests.RequestException as e:
         logger.error("ARK CSV fetch error: %s", e)
@@ -108,6 +112,31 @@ def _fetch_ark_csv(url: str) -> dict[str, dict]:
             continue
         if shares > 0:
             holdings[ticker] = {"company": company, "shares": shares}
+    return holdings
+
+
+def _fetch_ark_json(symbol: str) -> dict[str, dict]:
+    """Fallback: fetch ARK holdings from arkfunds.io JSON API."""
+    url = f"{_ARK_FALLBACK_API}?symbol={symbol}"
+    try:
+        resp = requests.get(url, headers=_ARK_HEADERS, timeout=25)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        logger.error("ARK JSON fallback error (%s): %s", symbol, e)
+        return {}
+
+    holdings: dict[str, dict] = {}
+    for h in data.get("holdings", []):
+        ticker = (h.get("ticker") or "").strip()
+        if not ticker:
+            continue
+        try:
+            shares = float(h.get("shares", 0))
+        except (ValueError, TypeError):
+            continue
+        if shares > 0:
+            holdings[ticker] = {"company": h.get("company", ""), "shares": shares}
     return holdings
 
 
@@ -171,6 +200,9 @@ def fetch_ark_fund(conn: sqlite3.Connection, fund: str) -> list[int]:
         return []
 
     curr = _fetch_ark_csv(url)
+    if curr is None:
+        logger.info("ARK %s: CSV 404, trying JSON fallback", fund)
+        curr = _fetch_ark_json(fund)
     if not curr:
         return []
 

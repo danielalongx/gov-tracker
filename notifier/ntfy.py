@@ -12,8 +12,9 @@ NTFY_BASE = "https://ntfy.sh"
 
 # UTC+8 digest windows: (hour, minute) pairs
 UTC8 = timezone(timedelta(hours=8))
-_DIGEST_WINDOWS = {(8, 30), (15, 30)}   # 08:30 and 15:30 UTC+8
+_DIGEST_TARGETS = [(8, 30), (15, 30)]   # 08:30 and 15:30 UTC+8
 _DIGEST_PERIOD  = {8: "今日上午", 15: "今日下午"}
+_DIGEST_WINDOW_MINUTES = 10             # fire if within ±10 min of target
 
 _GURU_DISCLAIMER = (
     "\n\n⚠️ 仅供参考，非投资建议\n"
@@ -43,9 +44,14 @@ _IMPACT_ARROW = {
 
 
 def _is_digest_hour() -> tuple[bool, datetime]:
-    """Return (is_digest, now_utc8). Matches at 08:30 and 15:30 UTC+8."""
+    """Return (is_digest, now_utc8). Fires if within ±10 min of 08:30 or 15:30 UTC+8."""
     now = datetime.now(UTC8)
-    return (now.hour, now.minute) in _DIGEST_WINDOWS, now
+    now_minutes = now.hour * 60 + now.minute
+    for h, m in _DIGEST_TARGETS:
+        target_minutes = h * 60 + m
+        if abs(now_minutes - target_minutes) <= _DIGEST_WINDOW_MINUTES:
+            return True, now
+    return False, now
 
 
 def _parse_dt(raw: Optional[str]) -> Optional[datetime]:
@@ -193,8 +199,8 @@ def send_pending_notifications(
         )
         conn.commit()
         next_windows = sorted(
-            f"{h:02d}:{m:02d}" for h, m in _DIGEST_WINDOWS
-            if h > now_utc8.hour or (h == now_utc8.hour and m > now_utc8.minute)
+            f"{h:02d}:{m:02d}" for h, m in _DIGEST_TARGETS
+            if h * 60 + m > now_utc8.hour * 60 + now_utc8.minute
         )
         logger.info(
             "Notifications: held %d signal(s) (UTC+8 %02d:%02d — next digest at %s)",
