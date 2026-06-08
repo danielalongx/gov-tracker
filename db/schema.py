@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS analysis (
     analyzed_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
     notified        INTEGER  DEFAULT 0,
     hold_for_digest INTEGER  DEFAULT 0,  -- 1 = pending digest, not yet pushed
-    notified_at     DATETIME             -- when the push was actually sent
+    notified_at     DATETIME,            -- when the push was actually sent
+    category        TEXT     DEFAULT NULL
 )
 """
 

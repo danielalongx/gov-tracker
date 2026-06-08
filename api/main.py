@@ -103,6 +103,7 @@ def _row_to_signal(row: sqlite3.Row) -> dict:
         "capital_flows": int(row["score_capital_flows"] or 0),
         "technical": 0,
     }
+    result["category"] = row["category"] or "general"
 
     if source in _GURU_SOURCES:
         result["disclaimer"] = _GURU_DISCLAIMER
@@ -130,7 +131,8 @@ _SELECT = """
         a.score_financial,
         a.score_pipeline,
         a.score_regulatory,
-        a.score_capital_flows
+        a.score_capital_flows,
+        a.category
     FROM posts p
     JOIN analysis a ON a.post_id = p.id
 """
@@ -152,6 +154,7 @@ def list_signals(
     source: Optional[str] = None,
     sentiment: Optional[str] = None,
     min_score: int = Query(6, ge=0, le=10),
+    category: Optional[str] = None,
 ):
     conditions = ["a.is_relevant = 1", "a.relevance_score >= ?"]
     params: list = [min_score]
@@ -164,6 +167,10 @@ def list_signals(
         db_sentiment = _SENTIMENT_MAP_REVERSE.get(sentiment, sentiment)
         conditions.append("a.sentiment = ?")
         params.append(db_sentiment)
+
+    if category:
+        conditions.append("a.category = ?")
+        params.append(category)
 
     where = " AND ".join(conditions)
 

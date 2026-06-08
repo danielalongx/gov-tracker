@@ -5,6 +5,7 @@ from typing import Optional
 
 import anthropic
 
+from analyzer.categories import classify_signal
 from analyzer.dimensions import score_dimensions
 from collector.keyword_filter import should_process as _investment_filter
 
@@ -194,16 +195,23 @@ def _save_analysis(
     post_db_id: int,
     result: dict,
     dims: dict,
+    source: str = "",
 ) -> Optional[int]:
     try:
+        category = classify_signal(
+            source,
+            result.get("summary", ""),
+            json.loads(result.get("industries") or "[]"),
+            float(result.get("relevance_score") or 0),
+        )
         cur = conn.execute(
             """
             INSERT INTO analysis
                 (post_id, is_relevant, sentiment, tickers, companies,
                  industries, relevance_score, summary, source_name,
                  score_news, score_financial, score_pipeline,
-                 score_regulatory, score_capital_flows)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 score_regulatory, score_capital_flows, category)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 post_db_id,
@@ -220,6 +228,7 @@ def _save_analysis(
                 dims["pipeline"],
                 dims["regulatory"],
                 dims["capital_flows"],
+                category,
             ),
         )
         conn.commit()
@@ -252,7 +261,7 @@ def analyze_unprocessed(conn: sqlite3.Connection, client: anthropic.Anthropic) -
                         {"source": source},
                         result,
                     )
-                    aid = _save_analysis(conn, post_db_id, result, dims)
+                    aid = _save_analysis(conn, post_db_id, result, dims, source)
                     if aid:
                         analysis_ids.append(aid)
         except Exception as e:
