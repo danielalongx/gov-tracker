@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -44,8 +45,11 @@ _IMPACT_ARROW = {
 
 
 def _is_digest_hour() -> tuple[bool, datetime]:
-    """Return (is_digest, now_utc8). Fires if within ±10 min of 08:30 or 15:30 UTC+8."""
+    """Return (is_digest, now_utc8). Fires if within ±10 min of 08:30 or 15:30 UTC+8,
+    or if FORCE_DIGEST=1 is set (for testing)."""
     now = datetime.now(UTC8)
+    if os.getenv("FORCE_DIGEST") == "1":
+        return True, now
     now_minutes = now.hour * 60 + now.minute
     for h, m in _DIGEST_TARGETS:
         target_minutes = h * 60 + m
