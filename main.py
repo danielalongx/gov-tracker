@@ -32,7 +32,7 @@ def main() -> None:
     truth_social_token: Optional[str] = os.getenv("TRUTH_SOCIAL_BEARER_TOKEN") or None
     anthropic_key: str = os.environ["ANTHROPIC_API_KEY"]
     ntfy_channel: str = os.environ["NTFY_CHANNEL"]
-    relevance_threshold: float = float(os.getenv("RELEVANCE_THRESHOLD", "6"))
+    relevance_threshold: float = float(os.getenv("RELEVANCE_THRESHOLD", "5"))
 
     # Late imports so env vars are loaded before any module-level config
     import anthropic as anthropic_sdk

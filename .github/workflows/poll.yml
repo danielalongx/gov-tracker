@@ -23,8 +23,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: data/gov_tracker.db
-          key: gov-tracker-db-${{ runner.os }}
-          restore-keys: gov-tracker-db-${{ runner.os }}
+          key: gov-tracker-db-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: gov-tracker-db-${{ runner.os }}-
 
       - name: Install dependencies
         run: pip install -r requirements.txt
@@ -33,7 +33,6 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           NTFY_CHANNEL: ${{ secrets.NTFY_CHANNEL }}
-          FORCE_DIGEST: ${{ secrets.FORCE_DIGEST }}
         run: python main.py
 
       - name: Save DB cache
@@ -41,4 +40,4 @@ jobs:
         if: always()
         with:
           path: data/gov_tracker.db
-          key: gov-tracker-db-${{ runner.os }}
+          key: gov-tracker-db-${{ runner.os }}-${{ github.run_id }}
