@@ -113,3 +113,42 @@ CREATE TABLE IF NOT EXISTS insider_trades (
     UNIQUE(ticker, person_name, filed_at, action)
 )
 """
+
+# Stage 2: Signal Scoring Engine tables
+
+CREATE_MECHANISMS = """
+CREATE TABLE IF NOT EXISTS mechanisms (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    signal_id      INTEGER REFERENCES analysis(id) ON DELETE CASCADE,
+    mechanism_type TEXT    NOT NULL,
+    description    TEXT,
+    direction      INTEGER DEFAULT 0,
+    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
+CREATE_COMPANY_PROFILES = """
+CREATE TABLE IF NOT EXISTS company_profiles (
+    ticker                TEXT PRIMARY KEY,
+    company_name          TEXT,
+    sector                TEXT,
+    listed_market         TEXT,
+    pricing_currency      TEXT DEFAULT 'USD',
+    geo_exposure_json     TEXT,
+    revenue_segments_json TEXT,
+    characteristics_json  TEXT,
+    updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
+CREATE_SIGNAL_COMPANY_LINKS = """
+CREATE TABLE IF NOT EXISTS signal_company_links (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    signal_id        INTEGER REFERENCES analysis(id) ON DELETE CASCADE,
+    ticker           TEXT,
+    impact_direction INTEGER DEFAULT 0,
+    impact_magnitude REAL    DEFAULT 0.5,
+    price_in_ratio   REAL    DEFAULT 0.0,
+    created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+"""

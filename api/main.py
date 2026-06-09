@@ -402,3 +402,27 @@ def remove_from_watchlist(user_id: int, ticker: str):
         )
         con.commit()
     return {"status": "removed", "ticker": ticker}
+
+
+# ---------------------------------------------------------------------------
+# Company profile endpoints (Stage 2 Scoring Engine)
+# ---------------------------------------------------------------------------
+
+@app.get("/company/{ticker}/profile")
+def get_company_profile(ticker: str):
+    ticker = ticker.upper()
+    with _conn() as con:
+        row = con.execute(
+            "SELECT * FROM company_profiles WHERE ticker = ?",
+            (ticker,),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"No profile found for {ticker}")
+    result = dict(row)
+    for field in ("geo_exposure_json", "revenue_segments_json", "characteristics_json"):
+        if result.get(field):
+            try:
+                result[field] = json.loads(result[field])
+            except (ValueError, TypeError):
+                pass
+    return result
