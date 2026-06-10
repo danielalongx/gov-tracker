@@ -19,6 +19,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.on_event("startup")
+def _ensure_db_ready() -> None:
+    """Create the SQLite file/tables on first boot (e.g. fresh Railway deploys
+    where data/ is gitignored and doesn't exist yet)."""
+    from db.init_db import init_db
+
+    init_db()
+
 # LLM writes Chinese sentiments; map them to English for the API response.
 _SENTIMENT_MAP = {
     "利多": "bullish",
