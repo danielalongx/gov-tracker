@@ -408,6 +408,20 @@ def remove_from_watchlist(user_id: int, ticker: str):
 # Company profile endpoints (Stage 2 Scoring Engine)
 # ---------------------------------------------------------------------------
 
+@app.get("/mechanisms")
+def list_mechanisms():
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT * FROM mechanism_rules ORDER BY mechanism_type, id"
+        ).fetchall()
+    grouped: dict = {}
+    for row in rows:
+        r = dict(row)
+        mtype = r["mechanism_type"]
+        grouped.setdefault(mtype, []).append(r)
+    return grouped
+
+
 @app.get("/company/{ticker}/profile")
 def get_company_profile(ticker: str):
     ticker = ticker.upper()

@@ -43,3 +43,11 @@ def classify_signal(source: str, summary: str, industries: list, relevance_score
         return 'hot_topic'
 
     return 'general'
+
+
+def get_signal_class(category: str) -> str:
+    if category in ('guru', 'institutional', 'hot_topic', 'general'):
+        return 'A'
+    if category in ('macro', 'sector'):
+        return 'C'
+    return 'A'

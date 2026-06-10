@@ -6,7 +6,8 @@ from pathlib import Path
 from db.schema import (
     CREATE_ANALYSIS, CREATE_POSTS, CREATE_SUBSCRIPTIONS, CREATE_USERS,
     CREATE_STOCK_SNAPSHOTS, CREATE_EARNINGS, CREATE_INSIDER_TRADES,
-    CREATE_MECHANISMS, CREATE_COMPANY_PROFILES, CREATE_SIGNAL_COMPANY_LINKS,
+    CREATE_MECHANISM_RULES, CREATE_MECHANISMS, CREATE_COMPANY_PROFILES,
+    CREATE_SIGNAL_COMPANY_LINKS,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,7 @@ def init_db() -> None:
         conn.execute(CREATE_STOCK_SNAPSHOTS)
         conn.execute(CREATE_EARNINGS)
         conn.execute(CREATE_INSIDER_TRADES)
+        conn.execute(CREATE_MECHANISM_RULES)
         conn.execute(CREATE_MECHANISMS)
         conn.execute(CREATE_COMPANY_PROFILES)
         conn.execute(CREATE_SIGNAL_COMPANY_LINKS)
@@ -73,6 +75,11 @@ def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_mechanisms_signal_id "
             "ON mechanisms(signal_id)"
         )
+
+        try:
+            conn.execute("ALTER TABLE analysis ADD COLUMN signal_class TEXT DEFAULT 'A'")
+        except Exception:
+            pass
 
         ntfy_channel = os.getenv("NTFY_CHANNEL", "gov-tracker-default")
         if conn.execute("SELECT id FROM users LIMIT 1").fetchone() is None:

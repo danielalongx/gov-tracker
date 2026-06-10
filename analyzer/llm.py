@@ -5,7 +5,7 @@ from typing import Optional
 
 import anthropic
 
-from analyzer.categories import classify_signal
+from analyzer.categories import classify_signal, get_signal_class
 from analyzer.dimensions import score_dimensions
 from collector.keyword_filter import should_process as _investment_filter
 
@@ -210,8 +210,8 @@ def _save_analysis(
                 (post_id, is_relevant, sentiment, tickers, companies,
                  industries, relevance_score, summary, source_name,
                  score_news, score_financial, score_pipeline,
-                 score_regulatory, score_capital_flows, category)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 score_regulatory, score_capital_flows, category, signal_class)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 post_db_id,
@@ -229,6 +229,7 @@ def _save_analysis(
                 dims["regulatory"],
                 dims["capital_flows"],
                 category,
+                get_signal_class(category),
             ),
         )
         conn.commit()

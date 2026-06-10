@@ -116,6 +116,18 @@ CREATE TABLE IF NOT EXISTS insider_trades (
 
 # Stage 2: Signal Scoring Engine tables
 
+CREATE_MECHANISM_RULES = """
+CREATE TABLE IF NOT EXISTS mechanism_rules (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  mechanism_type TEXT    NOT NULL,
+  affects_feature TEXT   NOT NULL,
+  direction      INTEGER NOT NULL,
+  base_strength  REAL    DEFAULT 1.0,
+  confidence     TEXT    DEFAULT 'moderate',
+  notes          TEXT
+)
+"""
+
 CREATE_MECHANISMS = """
 CREATE TABLE IF NOT EXISTS mechanisms (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
