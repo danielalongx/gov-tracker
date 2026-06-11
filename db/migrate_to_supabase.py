@@ -74,6 +74,7 @@ def migrate():
         industries = r['industries'] if isinstance(r['industries'], str) else json.dumps(r['industries'] or [])
         companies = r['companies'] if isinstance(r['companies'], str) else json.dumps(r['companies'] or [])
         category = r['category'] if 'category' in cols else None
+        disclaimer = r['disclaimer'] if 'disclaimer' in cols else None
         pgc.execute("""
             INSERT INTO analysis (id, post_id, is_relevant, sentiment, tickers, industries,
                 companies, relevance_score, summary, source_name, disclaimer,
@@ -83,7 +84,7 @@ def migrate():
             ON CONFLICT DO NOTHING
         """, (r['id'], r['post_id'], bool(r['is_relevant']), r['sentiment'],
               tickers, industries, companies, r['relevance_score'], r['summary'],
-              r['source_name'], r['disclaimer'],
+              r['source_name'], disclaimer,
               r['score_news'] or 0, r['score_financial'] or 0,
               r['score_pipeline'] or 0, r['score_regulatory'] or 0,
               r['score_capital_flows'] or 0,

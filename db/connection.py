@@ -17,6 +17,12 @@ def _sqlite_path() -> str:
     return str(data_dir / "gov_tracker.db")
 
 
+class _SQLiteConnection(sqlite3.Connection):
+    """Subclass so we can stash a custom attribute (sqlite3.Connection itself
+    doesn't support arbitrary attribute assignment)."""
+    pass
+
+
 def get_connection():
     db_url = os.getenv("DATABASE_URL", "")
     if db_url.startswith("postgresql") or db_url.startswith("postgres"):
@@ -27,7 +33,7 @@ def get_connection():
             return conn
         except ImportError:
             print("psycopg2 not installed — falling back to SQLite")
-    conn = sqlite3.connect(_sqlite_path())
+    conn = sqlite3.connect(_sqlite_path(), factory=_SQLiteConnection)
     conn._is_postgres = False  # type: ignore[attr-defined]
     conn.row_factory = sqlite3.Row
     return conn
