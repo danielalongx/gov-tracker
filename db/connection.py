@@ -28,7 +28,7 @@ def get_connection():
     if db_url.startswith("postgresql") or db_url.startswith("postgres"):
         try:
             import psycopg2
-            conn = psycopg2.connect(db_url)
+            conn = psycopg2.connect(db_url, connect_timeout=10)
             conn._is_postgres = True  # type: ignore[attr-defined]
             return conn
         except ImportError:
