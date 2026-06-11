@@ -15,6 +15,9 @@ import sqlite3
 import json
 from pathlib import Path
 
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
 DATA_DIR = Path(__file__).parent.parent / "data"
 SQLITE_PATH = DATA_DIR / "gov_tracker.db"
 PG_SCHEMA = Path(__file__).parent / "schema_pg.sql"
@@ -66,15 +69,17 @@ def migrate():
     rows = sq.execute("SELECT * FROM analysis").fetchall()
     print(f"Migrating {len(rows)} analysis rows...")
     for r in rows:
+        cols = r.keys()
         tickers = r['tickers'] if isinstance(r['tickers'], str) else json.dumps(r['tickers'] or [])
         industries = r['industries'] if isinstance(r['industries'], str) else json.dumps(r['industries'] or [])
         companies = r['companies'] if isinstance(r['companies'], str) else json.dumps(r['companies'] or [])
+        category = r['category'] if 'category' in cols else None
         pgc.execute("""
             INSERT INTO analysis (id, post_id, is_relevant, sentiment, tickers, industries,
                 companies, relevance_score, summary, source_name, disclaimer,
                 score_news, score_financial, score_pipeline, score_regulatory, score_capital_flows,
-                analyzed_at, notified, notified_at, hold_for_digest)
-            VALUES (%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                analyzed_at, notified, notified_at, hold_for_digest, category)
+            VALUES (%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT DO NOTHING
         """, (r['id'], r['post_id'], bool(r['is_relevant']), r['sentiment'],
               tickers, industries, companies, r['relevance_score'], r['summary'],
@@ -83,7 +88,57 @@ def migrate():
               r['score_pipeline'] or 0, r['score_regulatory'] or 0,
               r['score_capital_flows'] or 0,
               r['analyzed_at'], bool(r['notified']), r['notified_at'],
-              bool(r['hold_for_digest'] or 0)))
+              bool(r['hold_for_digest'] or 0), category))
+
+    # --- user_watchlist ---
+    try:
+        rows = sq.execute("SELECT * FROM user_watchlist").fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+    print(f"Migrating {len(rows)} user_watchlist rows...")
+    for r in rows:
+        weights = r['weights']
+        if weights is not None and not isinstance(weights, str):
+            weights = json.dumps(weights)
+        pgc.execute("""
+            INSERT INTO user_watchlist (id, user_id, ticker, name, sector, added_at, weights)
+            VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb)
+            ON CONFLICT (user_id, ticker) DO NOTHING
+        """, (r['id'], r['user_id'], r['ticker'], r['name'], r['sector'], r['added_at'], weights))
+
+    # --- mechanisms ---
+    try:
+        rows = sq.execute("SELECT * FROM mechanisms").fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+    print(f"Migrating {len(rows)} mechanisms rows...")
+    for r in rows:
+        pgc.execute("""
+            INSERT INTO mechanisms (id, signal_id, mechanism_type, description, direction, created_at)
+            VALUES (%s,%s,%s,%s,%s,%s)
+            ON CONFLICT DO NOTHING
+        """, (r['id'], r['signal_id'], r['mechanism_type'], r['description'], r['direction'], r['created_at']))
+
+    # --- signal_company_links ---
+    try:
+        rows = sq.execute("SELECT * FROM signal_company_links").fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+    print(f"Migrating {len(rows)} signal_company_links rows...")
+    for r in rows:
+        pgc.execute("""
+            INSERT INTO signal_company_links (id, signal_id, ticker, impact_direction, impact_magnitude, price_in_ratio, created_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT DO NOTHING
+        """, (r['id'], r['signal_id'], r['ticker'], r['impact_direction'], r['impact_magnitude'], r['price_in_ratio'], r['created_at']))
+
+    # Keep SERIAL sequences in sync with the migrated max ids, since we
+    # inserted explicit ids above.
+    for table in ("posts", "analysis", "user_watchlist", "mechanisms", "signal_company_links"):
+        pgc.execute(
+            f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
+            f"COALESCE((SELECT MAX(id) FROM {table}), 1))"
+        )
 
     sq.close()
     pg.close()

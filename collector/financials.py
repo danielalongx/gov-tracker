@@ -10,7 +10,49 @@ from typing import Optional
 
 import yfinance as yf
 
+from db.connection import is_postgres
+
 logger = logging.getLogger(__name__)
+
+
+def _run(conn, sql: str, params=()):
+    """Execute SQL portably across SQLite and Postgres connections."""
+    if is_postgres(conn):
+        cur = conn.cursor()
+        cur.execute(sql.replace("?", "%s"), params)
+        return cur
+    return conn.execute(sql, params)
+
+
+def _upsert_earnings(conn, record: dict):
+    """INSERT OR REPLACE (SQLite) / upsert on (ticker, period) (Postgres)."""
+    cols = ("ticker", "period", "revenue", "net_income",
+            "eps_actual", "eps_estimate", "surprise_pct", "reported_at")
+    values = tuple(record[c] for c in cols)
+    if is_postgres(conn):
+        update_cols = ", ".join(f"{c}=EXCLUDED.{c}" for c in cols if c not in ("ticker", "period"))
+        sql = (
+            f"INSERT INTO earnings ({', '.join(cols)}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            f" ON CONFLICT (ticker, period) DO UPDATE SET {update_cols}"
+        )
+    else:
+        sql = f"INSERT OR REPLACE INTO earnings ({', '.join(cols)}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    _run(conn, sql, values)
+
+
+def _insert_ignore_insider_trade(conn, record: dict):
+    """INSERT OR IGNORE (SQLite) / ON CONFLICT DO NOTHING on
+    (ticker, person_name, filed_at, action) (Postgres)."""
+    cols = ("ticker", "person_name", "role", "action", "shares", "price", "filed_at")
+    values = tuple(record[c] for c in cols)
+    if is_postgres(conn):
+        sql = (
+            f"INSERT INTO insider_trades ({', '.join(cols)}) VALUES (?, ?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT (ticker, person_name, filed_at, action) DO NOTHING"
+        )
+    else:
+        sql = f"INSERT OR IGNORE INTO insider_trades ({', '.join(cols)}) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    _run(conn, sql, values)
 
 
 def fetch_stock_snapshot(ticker: str, conn: Optional[sqlite3.Connection] = None) -> Optional[dict]:
@@ -32,7 +74,8 @@ def fetch_stock_snapshot(ticker: str, conn: Optional[sqlite3.Connection] = None)
         }
 
         if conn is not None:
-            conn.execute(
+            _run(
+                conn,
                 """
                 INSERT INTO stock_snapshots
                     (ticker, price, pe_ratio, market_cap, target_price,
@@ -105,20 +148,7 @@ def fetch_recent_earnings(ticker: str, conn: Optional[sqlite3.Connection] = None
 
                 if conn is not None:
                     try:
-                        conn.execute(
-                            """
-                            INSERT OR REPLACE INTO earnings
-                                (ticker, period, revenue, net_income,
-                                 eps_actual, eps_estimate, surprise_pct, reported_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            (
-                                record["ticker"], record["period"], record["revenue"],
-                                record["net_income"], record["eps_actual"],
-                                record["eps_estimate"], record["surprise_pct"],
-                                record["reported_at"],
-                            ),
-                        )
+                        _upsert_earnings(conn, record)
                     except Exception as dbe:
                         logger.warning("Earnings DB insert %s/%s: %s", ticker, period_str, dbe)
 
@@ -143,20 +173,7 @@ def fetch_recent_earnings(ticker: str, conn: Optional[sqlite3.Connection] = None
                 results.append(record)
                 if conn is not None:
                     try:
-                        conn.execute(
-                            """
-                            INSERT OR REPLACE INTO earnings
-                                (ticker, period, revenue, net_income,
-                                 eps_actual, eps_estimate, surprise_pct, reported_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            (
-                                record["ticker"], record["period"], record["revenue"],
-                                record["net_income"], record["eps_actual"],
-                                record["eps_estimate"], record["surprise_pct"],
-                                record["reported_at"],
-                            ),
-                        )
+                        _upsert_earnings(conn, record)
                     except Exception as dbe:
                         logger.warning("Earnings DB insert %s/%s: %s", ticker, period_str, dbe)
 
@@ -230,18 +247,7 @@ def fetch_insider_trades(ticker: str, conn: Optional[sqlite3.Connection] = None)
 
             if conn is not None:
                 try:
-                    conn.execute(
-                        """
-                        INSERT OR IGNORE INTO insider_trades
-                            (ticker, person_name, role, action, shares, price, filed_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            record["ticker"], record["person_name"], record["role"],
-                            record["action"], record["shares"], record["price"],
-                            record["filed_at"],
-                        ),
-                    )
+                    _insert_ignore_insider_trade(conn, record)
                 except Exception as dbe:
                     logger.warning("Insider trade DB insert %s: %s", ticker, dbe)
 

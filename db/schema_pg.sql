@@ -77,7 +77,8 @@ CREATE TABLE IF NOT EXISTS earnings (
     eps_actual REAL,
     eps_estimate REAL,
     surprise_pct REAL,
-    reported_at TIMESTAMPTZ
+    reported_at TIMESTAMPTZ,
+    UNIQUE (ticker, period)
 );
 
 CREATE TABLE IF NOT EXISTS insider_trades (
@@ -88,7 +89,8 @@ CREATE TABLE IF NOT EXISTS insider_trades (
     action TEXT,
     shares REAL,
     price REAL,
-    filed_at TIMESTAMPTZ
+    filed_at TIMESTAMPTZ,
+    UNIQUE (ticker, person_name, filed_at, action)
 );
 
 CREATE TABLE IF NOT EXISTS ark_holdings (
@@ -157,3 +159,47 @@ INSERT INTO company_profiles (ticker, company_name, sector, listed_market, prici
 ('JPM',   'JPMorgan Chase & Co.',                'Financials/Banking',              'NYSE',   'USD', '{"US": 0.65, "Europe": 0.18, "Asia": 0.17}',                  '{"consumer_banking": 0.35, "investment_banking": 0.30, "commercial_banking": 0.15, "asset_management": 0.20}', '{"rate_sensitive": true, "banking": true, "yield_curve": true, "credit_cycle": true}'),
 ('TSM',   'Taiwan Semiconductor Manufacturing', 'Technology/Semiconductors',       'NYSE',   'USD', '{"Taiwan": 0.80, "Asia": 0.15, "US": 0.05}',                  '{"advanced_node": 0.53, "specialty": 0.30, "mature_node": 0.17}', '{"rate_sensitive": false, "ai_exposed": true, "semiconductor": true, "geopolitical_risk": true, "export_controlled": true}')
 ON CONFLICT (ticker) DO NOTHING;
+
+-- User watchlist (per-user stock tracking + dimension weights)
+CREATE TABLE IF NOT EXISTS user_watchlist (
+    id         SERIAL PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id),
+    ticker     TEXT    NOT NULL,
+    name       TEXT,
+    sector     TEXT,
+    added_at   TIMESTAMPTZ DEFAULT NOW(),
+    weights    JSONB,
+    UNIQUE (user_id, ticker)
+);
+
+-- Mechanism rules (Stage 2 Scoring Engine)
+CREATE TABLE IF NOT EXISTS mechanism_rules (
+    id              SERIAL PRIMARY KEY,
+    mechanism_type  TEXT    NOT NULL,
+    affects_feature TEXT    NOT NULL,
+    direction       INTEGER NOT NULL,
+    base_strength   REAL    DEFAULT 1.0,
+    confidence      TEXT    DEFAULT 'moderate',
+    notes           TEXT,
+    UNIQUE (mechanism_type, affects_feature)
+);
+
+INSERT INTO mechanism_rules (mechanism_type, affects_feature, direction, base_strength, confidence, notes) VALUES
+('rate_high', 'high_debt_ratio', -1, 2.5, 'consensus', 'High rates → debt service burden kills leveraged names'),
+('rate_high', 'low_interest_coverage', -1, 2.0, 'consensus', 'Thin coverage crushed when rates stay elevated'),
+('rate_high', 'high_forward_pe', -1, 1.5, 'moderate', 'Duration compression: high multiples de-rate'),
+('rate_high', 'high_net_cash', 1, 2.0, 'consensus', 'Cash earns more; net-cash companies benefit directly'),
+('rate_high', 'strong_fcf', 1, 1.5, 'moderate', 'Strong FCF companies self-fund without expensive debt'),
+('rate_falling', 'high_debt_ratio', 1, 2.0, 'consensus', 'Rate relief eases debt service for leveraged names'),
+('rate_falling', 'high_forward_pe', 1, 1.5, 'moderate', 'Duration expansion: growth multiples re-rate upward'),
+('rate_falling', 'high_net_cash', -1, 0.5, 'situational', 'Cash earns less; relative disadvantage vs levered peers'),
+('supply_chain_cost_rise', 'high_import_material_pct', -1, 2.0, 'consensus', 'Import-heavy inputs → margin pressure directly'),
+('supply_chain_cost_rise', 'low_gross_margin', -1, 1.5, 'moderate', 'Thin margins have no buffer for cost spikes'),
+('supply_chain_cost_rise', 'domestic_supply_chain', 1, 1.5, 'moderate', 'Domestic sourcing insulates from import cost rises'),
+('supply_chain_cost_rise', 'pricing_power', 1, 2.0, 'moderate', 'Pricing power allows pass-through of higher costs'),
+('ai_capex_rising', 'high_cloud_datacenter_revenue_pct', 1, 3.0, 'consensus', 'Datacenter/cloud revenue surges with AI infra spend'),
+('ai_capex_rising', 'high_ai_exposure', 1, 2.5, 'consensus', 'Direct AI product exposure captures capex wave'),
+('usd_strengthening', 'high_overseas_revenue_pct', -1, 2.0, 'consensus', 'FX headwind on repatriated overseas earnings'),
+('usd_strengthening', 'high_usd_debt', -1, 1.5, 'moderate', 'Non-US borrowers face heavier USD debt burden'),
+('usd_strengthening', 'domestic_focused', 1, 1.0, 'situational', 'Purely domestic revenue insulated from FX drag')
+ON CONFLICT (mechanism_type, affects_feature) DO NOTHING;

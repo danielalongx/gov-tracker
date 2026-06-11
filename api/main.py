@@ -1,5 +1,4 @@
 import json
-import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -7,6 +6,8 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+
+from db.connection import get_connection, is_postgres
 
 DB_PATH = Path(__file__).parent.parent / "data" / "gov_tracker.db"
 
@@ -55,18 +56,45 @@ _GURU_DISCLAIMER = (
 
 @contextmanager
 def _conn():
-    con = sqlite3.connect(str(DB_PATH))
-    con.row_factory = sqlite3.Row
+    con = get_connection()
     try:
         yield con
     finally:
         con.close()
 
 
-def _row_to_signal(row: sqlite3.Row) -> dict:
-    tickers = json.loads(row["tickers"] or "[]")
-    industries = json.loads(row["industries"] or "[]")
-    companies_raw = json.loads(row["companies"] or "[]")
+def _exec(con, sql: str, params=()):
+    """Execute SQL portably across SQLite and Postgres connections.
+
+    Translates '?' placeholders to '%s' for Postgres and returns a cursor
+    whose rows support both dict-style (row["col"]) and dict() access for
+    either backend.
+    """
+    if is_postgres(con):
+        import psycopg2.extras
+
+        cur = con.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(sql.replace("?", "%s"), params)
+        return cur
+    return con.execute(sql, params)
+
+
+def _maybe_json(val, default):
+    """JSONB columns come back already-parsed from Postgres; SQLite stores them as TEXT."""
+    if val is None:
+        return default
+    if isinstance(val, (list, dict)):
+        return val
+    try:
+        return json.loads(val)
+    except (TypeError, ValueError):
+        return default
+
+
+def _row_to_signal(row) -> dict:
+    tickers = _maybe_json(row["tickers"], [])
+    industries = _maybe_json(row["industries"], [])
+    companies_raw = _maybe_json(row["companies"], [])
 
     companies = [
         {
@@ -150,10 +178,15 @@ _SELECT = """
 @app.get("/health")
 def health():
     with _conn() as con:
-        count = con.execute(
-            "SELECT COUNT(*) FROM analysis WHERE is_relevant = 1"
-        ).fetchone()[0]
-    return {"status": "ok", "db_path": str(DB_PATH), "signal_count": count}
+        pg = is_postgres(con)
+        count = _exec(
+            con, "SELECT COUNT(*) AS cnt FROM analysis WHERE is_relevant"
+        ).fetchone()["cnt"]
+    return {
+        "status": "ok",
+        "db": "postgres" if pg else str(DB_PATH),
+        "signal_count": count,
+    }
 
 
 @app.get("/signals")
@@ -165,7 +198,7 @@ def list_signals(
     min_score: int = Query(6, ge=0, le=10),
     category: Optional[str] = None,
 ):
-    conditions = ["a.is_relevant = 1", "a.relevance_score >= ?"]
+    conditions = ["a.is_relevant", "a.relevance_score >= ?"]
     params: list = [min_score]
 
     if source:
@@ -184,7 +217,8 @@ def list_signals(
     where = " AND ".join(conditions)
 
     with _conn() as con:
-        rows = con.execute(
+        rows = _exec(
+            con,
             f"{_SELECT} WHERE {where}"
             " ORDER BY COALESCE(p.article_published_at, p.posted_at) DESC"
             " LIMIT ? OFFSET ?",
@@ -202,7 +236,8 @@ def get_stock(ticker: str):
 
     ticker = ticker.upper()
     with _conn() as con:
-        row = con.execute(
+        row = _exec(
+            con,
             "SELECT * FROM stock_snapshots WHERE ticker = ? ORDER BY fetched_at DESC LIMIT 1",
             (ticker,),
         ).fetchone()
@@ -222,7 +257,8 @@ def get_stock(ticker: str):
             if snap is None and row is None:
                 raise HTTPException(status_code=404, detail=f"Could not fetch data for {ticker}")
             if snap:
-                row = con.execute(
+                row = _exec(
+                    con,
                     "SELECT * FROM stock_snapshots WHERE ticker = ? ORDER BY fetched_at DESC LIMIT 1",
                     (ticker,),
                 ).fetchone()
@@ -236,7 +272,8 @@ def get_stock(ticker: str):
 def get_stock_snapshot(ticker: str):
     ticker = ticker.upper()
     with _conn() as con:
-        row = con.execute(
+        row = _exec(
+            con,
             "SELECT * FROM stock_snapshots WHERE ticker = ? ORDER BY fetched_at DESC LIMIT 1",
             (ticker,),
         ).fetchone()
@@ -249,7 +286,8 @@ def get_stock_snapshot(ticker: str):
 def get_stock_earnings(ticker: str):
     ticker = ticker.upper()
     with _conn() as con:
-        rows = con.execute(
+        rows = _exec(
+            con,
             "SELECT * FROM earnings WHERE ticker = ? ORDER BY period DESC LIMIT 4",
             (ticker,),
         ).fetchall()
@@ -266,9 +304,13 @@ def get_ticker_signals(
 ):
     ticker = ticker.upper()
     with _conn() as con:
-        rows = con.execute(
-            f"{_SELECT} WHERE a.is_relevant = 1 AND a.relevance_score >= ?"
-            " AND (a.tickers LIKE ? OR p.content LIKE ?)"
+        # JSONB columns need an explicit text cast for LIKE on Postgres;
+        # SQLite stores them as TEXT already and doesn't support `::text`.
+        tickers_col = "a.tickers::text" if is_postgres(con) else "a.tickers"
+        rows = _exec(
+            con,
+            f"{_SELECT} WHERE a.is_relevant AND a.relevance_score >= ?"
+            f" AND ({tickers_col} LIKE ? OR p.content LIKE ?)"
             " ORDER BY COALESCE(p.article_published_at, p.posted_at) DESC"
             " LIMIT ?",
             (min_score, f'%"{ticker}"%', f"%{ticker}%", limit),
@@ -279,7 +321,8 @@ def get_ticker_signals(
 @app.get("/signals/{signal_id}")
 def get_signal(signal_id: int):
     with _conn() as con:
-        row = con.execute(
+        row = _exec(
+            con,
             f"{_SELECT} WHERE p.id = ?",
             (signal_id,),
         ).fetchone()
@@ -367,11 +410,17 @@ async def stripe_webhook(request: Request):
 @app.get("/users/{user_id}/watchlist")
 def get_watchlist(user_id: int):
     with _conn() as con:
-        rows = con.execute(
+        rows = _exec(
+            con,
             "SELECT ticker, name, sector, added_at, weights FROM user_watchlist WHERE user_id = ? ORDER BY added_at DESC",
             (user_id,)
         ).fetchall()
-    return [dict(r) for r in rows]
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["weights"] = _maybe_json(d.get("weights"), None)
+            result.append(d)
+    return result
 
 
 @app.post("/users/{user_id}/watchlist")
@@ -380,10 +429,14 @@ def add_to_watchlist(user_id: int, body: dict = Body(...)):
     if not ticker:
         raise HTTPException(status_code=400, detail="ticker required")
     with _conn() as con:
-        con.execute(
-            "INSERT OR IGNORE INTO user_watchlist (user_id, ticker, name, sector) VALUES (?,?,?,?)",
-            (user_id, ticker, body.get("name"), body.get("sector"))
-        )
+        if is_postgres(con):
+            sql = (
+                "INSERT INTO user_watchlist (user_id, ticker, name, sector) VALUES (?,?,?,?)"
+                " ON CONFLICT (user_id, ticker) DO NOTHING"
+            )
+        else:
+            sql = "INSERT OR IGNORE INTO user_watchlist (user_id, ticker, name, sector) VALUES (?,?,?,?)"
+        _exec(con, sql, (user_id, ticker, body.get("name"), body.get("sector")))
         con.commit()
     return {"status": "added", "ticker": ticker}
 
@@ -393,9 +446,15 @@ def update_weights(user_id: int, ticker: str, body: dict = Body(...)):
     import json as _json
     ticker = ticker.upper()
     with _conn() as con:
-        con.execute(
+        if is_postgres(con):
+            import psycopg2.extras
+            weights_param = psycopg2.extras.Json(body)
+        else:
+            weights_param = _json.dumps(body)
+        _exec(
+            con,
             "UPDATE user_watchlist SET weights = ? WHERE user_id = ? AND ticker = ?",
-            (_json.dumps(body), user_id, ticker)
+            (weights_param, user_id, ticker)
         )
         con.commit()
     return {"status": "updated", "ticker": ticker}
@@ -405,7 +464,8 @@ def update_weights(user_id: int, ticker: str, body: dict = Body(...)):
 def remove_from_watchlist(user_id: int, ticker: str):
     ticker = ticker.upper()
     with _conn() as con:
-        con.execute(
+        _exec(
+            con,
             "DELETE FROM user_watchlist WHERE user_id = ? AND ticker = ?",
             (user_id, ticker)
         )
@@ -420,8 +480,8 @@ def remove_from_watchlist(user_id: int, ticker: str):
 @app.get("/mechanisms")
 def list_mechanisms():
     with _conn() as con:
-        rows = con.execute(
-            "SELECT * FROM mechanism_rules ORDER BY mechanism_type, id"
+        rows = _exec(
+            con, "SELECT * FROM mechanism_rules ORDER BY mechanism_type, id"
         ).fetchall()
     grouped: dict = {}
     for row in rows:
@@ -435,7 +495,8 @@ def list_mechanisms():
 def get_company_profile(ticker: str):
     ticker = ticker.upper()
     with _conn() as con:
-        row = con.execute(
+        row = _exec(
+            con,
             "SELECT * FROM company_profiles WHERE ticker = ?",
             (ticker,),
         ).fetchone()
@@ -443,9 +504,5 @@ def get_company_profile(ticker: str):
         raise HTTPException(status_code=404, detail=f"No profile found for {ticker}")
     result = dict(row)
     for field in ("geo_exposure_json", "revenue_segments_json", "characteristics_json"):
-        if result.get(field):
-            try:
-                result[field] = json.loads(result[field])
-            except (ValueError, TypeError):
-                pass
+        result[field] = _maybe_json(result.get(field), result.get(field))
     return result
