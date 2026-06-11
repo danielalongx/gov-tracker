@@ -37,7 +37,8 @@ CREATE TABLE IF NOT EXISTS analysis (
     notified BOOLEAN DEFAULT FALSE,
     notified_at TIMESTAMPTZ,
     hold_for_digest BOOLEAN DEFAULT FALSE,
-    category TEXT DEFAULT NULL
+    category TEXT DEFAULT NULL,
+    signal_class TEXT DEFAULT 'A'
 );
 
 CREATE TABLE IF NOT EXISTS users (

@@ -49,6 +49,7 @@ def main() -> None:
     from collector.guru_trades import fetch_guru_trades
     from analyzer.llm import analyze_unprocessed
     from notifier.ntfy import send_pending_notifications
+    from db.sync_to_supabase import sync_to_supabase
 
     init_db()
 
@@ -92,6 +93,13 @@ def main() -> None:
         # ── Notifier ─────────────────────────────────────────────────
         logger.info("=== Notifier ===")
         sent = send_pending_notifications(conn, ntfy_channel, relevance_threshold)
+
+        # ── Sync to Supabase (production DB read by the Railway API) ──
+        logger.info("=== Supabase sync ===")
+        try:
+            sync_to_supabase(conn)
+        except Exception:
+            logger.exception("Supabase sync failed (non-fatal)")
 
         logger.info(
             "Run complete — new posts: %d, analyses: %d, notifications: %d",
