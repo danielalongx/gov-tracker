@@ -198,10 +198,16 @@ def _save_analysis(
     source: str = "",
 ) -> Optional[int]:
     try:
+        industries = result.get("industries") or []
+        if isinstance(industries, str):
+            try:
+                industries = json.loads(industries)
+            except json.JSONDecodeError:
+                industries = [industries]
         category = classify_signal(
             source,
             result.get("summary", ""),
-            json.loads(result.get("industries") or "[]"),
+            industries,
             float(result.get("relevance_score") or 0),
         )
         cur = conn.execute(
