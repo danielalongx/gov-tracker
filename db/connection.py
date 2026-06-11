@@ -28,7 +28,17 @@ def get_connection():
     if db_url.startswith("postgresql") or db_url.startswith("postgres"):
         try:
             import psycopg2
-            conn = psycopg2.connect(db_url, connect_timeout=10)
+            import psycopg2.extensions
+
+            class _PGConnection(psycopg2.extensions.connection):
+                """Subclass so we can stash a custom attribute (psycopg2
+                connections don't support arbitrary attribute assignment
+                by default)."""
+                pass
+
+            conn = psycopg2.connect(
+                db_url, connect_timeout=10, connection_factory=_PGConnection
+            )
             conn._is_postgres = True  # type: ignore[attr-defined]
             return conn
         except ImportError:
