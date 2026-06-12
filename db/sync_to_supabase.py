@@ -104,10 +104,58 @@ def sync_to_supabase(sqlite_conn: sqlite3.Connection) -> None:
                 f"COALESCE((SELECT MAX(id) FROM {table}), 1))"
             )
 
+        # --- daily_score_snapshot (Stage 3, added 2026-06-12) ---
+        # Table didn't exist in Supabase yet (schema_pg.sql gained it after
+        # the one-time migrate_to_supabase.py run), so create it here too.
+        # This is a small table (one row per ticker per snapshot_date) and
+        # ledger/snapshot.py upserts it on every pipeline run, so just
+        # upsert everything every sync rather than tracking max(id) —
+        # today's row can legitimately change between runs.
+        pgc.execute("""
+            CREATE TABLE IF NOT EXISTS daily_score_snapshot (
+                id                    SERIAL PRIMARY KEY,
+                ticker                TEXT    NOT NULL,
+                snapshot_date         TEXT    NOT NULL,
+                event_raw_score       REAL,
+                narrative_sensitivity REAL,
+                industry_heat         REAL,
+                technical_score       REAL,
+                structural_score      REAL,
+                composite_score       REAL,
+                components_json       JSONB,
+                created_at            TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (ticker, snapshot_date)
+            )
+        """)
+        pgc.execute(
+            "CREATE INDEX IF NOT EXISTS idx_daily_snapshot_ticker_date "
+            "ON daily_score_snapshot(ticker, snapshot_date)"
+        )
+
+        snapshot_rows = sqlite_conn.execute("SELECT * FROM daily_score_snapshot").fetchall()
+        for r in snapshot_rows:
+            pgc.execute("""
+                INSERT INTO daily_score_snapshot
+                    (ticker, snapshot_date, event_raw_score, narrative_sensitivity,
+                     industry_heat, technical_score, structural_score, composite_score,
+                     components_json)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                ON CONFLICT (ticker, snapshot_date) DO UPDATE SET
+                    event_raw_score=EXCLUDED.event_raw_score,
+                    narrative_sensitivity=EXCLUDED.narrative_sensitivity,
+                    industry_heat=EXCLUDED.industry_heat,
+                    technical_score=EXCLUDED.technical_score,
+                    structural_score=EXCLUDED.structural_score,
+                    composite_score=EXCLUDED.composite_score,
+                    components_json=EXCLUDED.components_json
+            """, (r["ticker"], r["snapshot_date"], r["event_raw_score"], r["narrative_sensitivity"],
+                  r["industry_heat"], r["technical_score"], r["structural_score"], r["composite_score"],
+                  _to_jsonb(r["components_json"])))
+
         pg.commit()
         logger.info(
-            "Supabase sync: %d new post(s), %d new analysis row(s)",
-            len(post_rows), len(analysis_rows),
+            "Supabase sync: %d new post(s), %d new analysis row(s), %d snapshot row(s) upserted",
+            len(post_rows), len(analysis_rows), len(snapshot_rows),
         )
     except Exception as e:
         logger.error("Supabase sync error: %s", e)

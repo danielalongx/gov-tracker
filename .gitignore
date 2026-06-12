@@ -20,6 +20,3 @@ venv/
 *.egg-info/
 dist/
 build/
-
-# Local tooling config
-.claude/
