@@ -50,6 +50,8 @@ def main() -> None:
     from analyzer.llm import analyze_unprocessed
     from notifier.ntfy import send_pending_notifications
     from db.sync_to_supabase import sync_to_supabase
+    from event.pipeline import process_new_signals
+    from ledger.snapshot import write_daily_snapshot
 
     init_db()
 
@@ -89,6 +91,22 @@ def main() -> None:
         logger.info("=== Analyzer ===")
         client = anthropic_sdk.Anthropic(api_key=anthropic_key)
         analysis_ids = analyze_unprocessed(conn, client)
+
+        # ── Event layer (transmission-chain raw scores → event_ledger) ─
+        logger.info("=== Event Layer ===")
+        try:
+            events_processed = process_new_signals(conn)
+            logger.info("Event layer: %d signal(s) processed", events_processed)
+        except Exception:
+            logger.exception("Event layer failed (non-fatal)")
+
+        # ── Ledger snapshot (daily_score_snapshot) ──────────────────
+        logger.info("=== Ledger Snapshot ===")
+        try:
+            snapshots_written = write_daily_snapshot(conn)
+            logger.info("Ledger snapshot: %d ticker(s) written", snapshots_written)
+        except Exception:
+            logger.exception("Ledger snapshot failed (non-fatal)")
 
         # ── Notifier ─────────────────────────────────────────────────
         logger.info("=== Notifier ===")
