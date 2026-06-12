@@ -7,7 +7,7 @@ from db.schema import (
     CREATE_ANALYSIS, CREATE_POSTS, CREATE_SUBSCRIPTIONS, CREATE_USERS,
     CREATE_STOCK_SNAPSHOTS, CREATE_EARNINGS, CREATE_INSIDER_TRADES,
     CREATE_MECHANISM_RULES, CREATE_MECHANISMS, CREATE_COMPANY_PROFILES,
-    CREATE_SIGNAL_COMPANY_LINKS,
+    CREATE_SIGNAL_COMPANY_LINKS, CREATE_EVENT_LEDGER, CREATE_DAILY_SCORE_SNAPSHOT,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,6 +39,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         ("analysis", "score_regulatory",      "ALTER TABLE analysis ADD COLUMN score_regulatory      REAL DEFAULT 0"),
         ("analysis", "score_capital_flows",   "ALTER TABLE analysis ADD COLUMN score_capital_flows   REAL DEFAULT 0"),
         ("analysis", "score",                 "ALTER TABLE analysis ADD COLUMN score                 REAL DEFAULT NULL"),
+        ("mechanism_rules", "half_life_days", "ALTER TABLE mechanism_rules ADD COLUMN half_life_days REAL DEFAULT 90"),
+        ("analysis", "event_processed",       "ALTER TABLE analysis ADD COLUMN event_processed      INTEGER DEFAULT 0"),
+        ("daily_score_snapshot", "technical_score", "ALTER TABLE daily_score_snapshot ADD COLUMN technical_score REAL"),
     ]
     for table, column, sql in migrations:
         try:
@@ -65,6 +68,8 @@ def init_db() -> None:
         conn.execute(CREATE_MECHANISMS)
         conn.execute(CREATE_COMPANY_PROFILES)
         conn.execute(CREATE_SIGNAL_COMPANY_LINKS)
+        conn.execute(CREATE_EVENT_LEDGER)
+        conn.execute(CREATE_DAILY_SCORE_SNAPSHOT)
 
         # Stage 2 indexes
         conn.execute(
@@ -74,6 +79,20 @@ def init_db() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_mechanisms_signal_id "
             "ON mechanisms(signal_id)"
+        )
+
+        # Stage 3 indexes
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_event_ledger_ticker_date "
+            "ON event_ledger(ticker, event_date)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_event_ledger_signal_id "
+            "ON event_ledger(signal_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_daily_snapshot_ticker_date "
+            "ON daily_score_snapshot(ticker, snapshot_date)"
         )
 
         try:
@@ -94,6 +113,33 @@ def init_db() -> None:
     # Run migrations against the live DB after tables exist
     with get_connection() as conn:
         _migrate(conn)
+        _seed_half_life(conn)
+
+
+# Half-life (days) per mechanism_type — how long a triggering event's
+# influence on the raw event score should decay (TimeDecay_e = exp(-days/half_life)).
+# Macro regimes (rates, FX) persist for months; supply-chain cost shocks and
+# sentiment-driven mechanisms fade faster. These are starting estimates and
+# should be revisited once Phase 3 calibration has enough history.
+_HALF_LIFE_DAYS = {
+    "rate_high":              120,
+    "rate_falling":           120,
+    "supply_chain_cost_rise":  60,
+    "ai_capex_rising":        180,
+    "usd_strengthening":       45,
+}
+
+
+def _seed_half_life(conn: sqlite3.Connection) -> None:
+    """Backfill half_life_days for mechanism_rules rows that still have the
+    column default (NULL or the generic 90-day fallback)."""
+    for mech_type, half_life in _HALF_LIFE_DAYS.items():
+        conn.execute(
+            "UPDATE mechanism_rules SET half_life_days = ? "
+            "WHERE mechanism_type = ? AND (half_life_days IS NULL OR half_life_days = 90)",
+            (half_life, mech_type),
+        )
+    conn.commit()
 
 
 _COMPANY_PROFILES_SEED = [
